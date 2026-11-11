@@ -58,10 +58,12 @@ Enquanto o agente trabalha, uma mensagem “Trabalhando…” é editada. Quando
 ## Como retomar
 
 ```bash
-systemctl --user restart cursor-telegram.service
-journalctl --user -u cursor-telegram.service -f
-cd /home/luizdeangeli/Projetos/cursor-remote && node --test
+make reiniciar
+make seguir
+make teste
 ```
+
+`make` lista o resto: status, logs, probe, diagnóstico, Cursor na porta 9222 e `make compartilhar`, que inverte `todas` e `escolhidas`.
 
 Se a porta 9222 recusar conexão, o Cursor foi aberto pelo menu. Quit e `bin/cursor-debug`.
 

@@ -106,7 +106,14 @@ systemctl --user enable --now cursor-telegram.service
 systemctl --user status cursor-telegram.service
 ```
 
-Após editar o `.env`, aplique as mudanças com `systemctl --user restart cursor-telegram.service`.
+Após editar o `.env`, aplique as mudanças com `make reiniciar`. Na pasta do projeto, `make` lista os atalhos. Para trocar o modo e reiniciar o serviço:
+
+```bash
+make compartilhar
+make compartilhar MODO=todas
+```
+
+Sem `MODO`, o comando inverte o valor atual.
 
 Os logs ficam em:
 
