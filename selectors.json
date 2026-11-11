@@ -1,0 +1,39 @@
+{
+  "chatInput": [
+    "[data-composer-id] [contenteditable='true']",
+    "#workbench\\.parts\\.auxiliarybar [contenteditable='true']",
+    ".composer-bar [contenteditable='true']",
+    "div[data-lexical-editor='true']",
+    "[contenteditable='true']"
+  ],
+  "messages": "[data-message-kind], [data-message-role][data-message-id], [data-react-transcript-row-kind], [data-flat-index], [data-message-index]",
+  "approve": [
+    "button.ui-shell-tool-call__run-btn",
+    "button.ui-shell-tool-call__allowlist-button",
+    ".composer-tool-call-status-row .anysphere-button.composer-run-button",
+    "button.composer-run-button",
+    ".composer-run-button"
+  ],
+  "reject": [
+    "button.ui-shell-tool-call__skip-btn",
+    ".composer-tool-call-status-row .composer-skip-button",
+    "button.composer-skip-button",
+    ".composer-skip-button"
+  ],
+  "stop": [
+    ".composer-toolbar-background-job-item-stop",
+    "button[aria-label*='Stop']",
+    "button[aria-label*='Parar']",
+    "button[aria-label*='Cancel generation']",
+    ".composer-stop-button"
+  ],
+  "tabs": [
+    ".agent-sidebar-list .agent-sidebar-cell",
+    ".agent-sidebar-cell-text"
+  ],
+  "command": [
+    ".ui-shell-tool-call__command",
+    ".composer-terminal-command-expanded-text",
+    ".composer-terminal-top-header-description"
+  ]
+}

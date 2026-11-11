@@ -1,0 +1,15 @@
+# Troque @ROOT@ pelo caminho desta pasta antes de instalar.
+# O README tem o comando sed que faz isso.
+[Unit]
+Description=Ponte local do Cursor para o Telegram
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@ROOT@
+ExecStart=/usr/bin/node @ROOT@/src/bridge.mjs
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

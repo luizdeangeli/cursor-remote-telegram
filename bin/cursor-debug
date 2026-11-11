@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Abre o Cursor com a porta de depuração que a ponte usa.
+set -euo pipefail
+
+BIN="/usr/share/cursor/cursor"
+if [[ ! -x "$BIN" ]]; then
+  BIN="$(command -v cursor)"
+fi
+
+if ss -ltn | grep -q '127.0.0.1:9222'; then
+  exec "$BIN" "$@"
+fi
+
+if pgrep -af '^/usr/share/cursor/cursor( |$)' | grep -v -- '--type=' | grep -v 'cursor-debug' >/dev/null; then
+  echo "O Cursor já está aberto sem a porta 9222." >&2
+  echo "Feche todas as janelas pelo menu (Quit Cursor) e rode este comando de novo." >&2
+  exit 1
+fi
+
+exec "$BIN" --no-sandbox --remote-debugging-port=9222 "$@"
