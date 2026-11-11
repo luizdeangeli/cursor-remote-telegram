@@ -1,4 +1,8 @@
 .env
 data/*.json
+data/*.bak*
+data/*.corrupt-*
+data/*.tmp
+data/bridge.lock
 *.log
 node_modules/

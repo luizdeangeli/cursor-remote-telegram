@@ -2,9 +2,13 @@
   "name": "cursor-telegram",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "start": "node src/bridge.mjs",
     "probe": "node bin/probe.mjs",
+    "diagnostico": "node bin/diagnostico.mjs",
     "test": "node --test"
   }
 }

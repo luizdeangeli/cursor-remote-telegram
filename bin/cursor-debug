@@ -17,4 +17,12 @@ if pgrep -af '^/usr/share/cursor/cursor( |$)' | grep -v -- '--type=' | grep -v '
   exit 1
 fi
 
-exec "$BIN" --no-sandbox --remote-debugging-port=9222 "$@"
+# O sandbox do Chromium fica ligado quando chrome-sandbox tem setuid.
+# Sem isso, o Cursor não sobe e a flag volta só nesse caso.
+SANDBOX_ARGS=()
+SANDBOX="$(dirname "$BIN")/chrome-sandbox"
+if [[ ! -u "$SANDBOX" ]]; then
+  SANDBOX_ARGS+=(--no-sandbox)
+fi
+
+exec "$BIN" "${SANDBOX_ARGS[@]}" --remote-debugging-port=9222 "$@"

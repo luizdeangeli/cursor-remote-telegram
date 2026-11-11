@@ -21,6 +21,32 @@ export function parseEnv(text) {
   return out;
 }
 
+export function interpretPoll(raw) {
+  const text = raw == null || raw === "" ? "2000" : String(raw).trim();
+  if (!/^\d+$/.test(text)) {
+    return { error: `POLL_INTERVAL_MS inválido (${raw}). Use um inteiro entre 500 e 120000.` };
+  }
+  const value = Number(text);
+  if (value < 500 || value > 120000) {
+    return { error: `POLL_INTERVAL_MS inválido (${value}). Use um inteiro entre 500 e 120000.` };
+  }
+  return { value };
+}
+
+export function validateConfig(config) {
+  const errors = [];
+  if (!config.token) errors.push("Falta TELEGRAM_BOT_TOKEN em .env.");
+  if (config.allowedUserId && !/^\d+$/.test(config.allowedUserId)) {
+    errors.push("TELEGRAM_ALLOWED_USER_ID precisa ser o id numérico da sua conta.");
+  }
+  if (config.chatId && !/^-?\d+$/.test(config.chatId)) {
+    errors.push("TELEGRAM_CHAT_ID precisa ser numérico, incluindo o sinal de menos do grupo.");
+  }
+  if (config.pollError) errors.push(config.pollError);
+  if (!config.cdpUrl) errors.push("CDP_URL está vazio.");
+  return errors;
+}
+
 export async function loadConfig(envPath = path.join(rootDir, ".env")) {
   let file = {};
   try {
@@ -29,12 +55,15 @@ export async function loadConfig(envPath = path.join(rootDir, ".env")) {
     if (error.code !== "ENOENT") throw error;
   }
   const pick = (key, fallback = "") => process.env[key] ?? file[key] ?? fallback;
+  const poll = interpretPoll(pick("POLL_INTERVAL_MS", "2000"));
   return {
     token: pick("TELEGRAM_BOT_TOKEN").trim(),
     allowedUserId: pick("TELEGRAM_ALLOWED_USER_ID").trim(),
     chatId: pick("TELEGRAM_CHAT_ID").trim(),
     cdpUrl: pick("CDP_URL", "http://127.0.0.1:9222").replace(/\/$/, ""),
-    pollIntervalMs: Number(pick("POLL_INTERVAL_MS", "2000")) || 2000,
+    pollIntervalMs: poll.value || 0,
+    pollError: poll.error || "",
     apiBase: pick("TELEGRAM_API_BASE", "https://api.telegram.org").replace(/\/$/, ""),
+    shareMode: pick("COMPARTILHAR", "todas").trim().toLowerCase() === "escolhidas" ? "escolhidas" : "todas",
   };
 }

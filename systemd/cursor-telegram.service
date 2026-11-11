@@ -10,6 +10,12 @@ WorkingDirectory=@ROOT@
 ExecStart=/usr/bin/node @ROOT@/src/bridge.mjs
 Restart=on-failure
 RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=@ROOT@/data
+PrivateTmp=true
+UMask=0077
 
 [Install]
 WantedBy=default.target

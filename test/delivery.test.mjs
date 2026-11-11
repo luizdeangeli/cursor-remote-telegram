@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { isWorkbench } from "../src/cdp.mjs";
-import { chunkText, planOutbound, tabKey } from "../src/delivery.mjs";
+import { chunkText, conversationName, planOutbound, tabKey, topicTitle, topicUrl } from "../src/delivery.mjs";
+
+test("não parte um emoji ao meio", () => {
+  const chunks = chunkText(`aa👍${"b".repeat(10)}`, 3);
+  assert.equal(chunks[0], "aa👍");
+  for (const chunk of chunks) assert.equal(chunk, Array.from(chunk).join(""));
+});
 
 test("corta texto longo na quebra de linha", () => {
   const text = `${"a".repeat(20)}\n${"b".repeat(20)}`;
@@ -57,6 +63,17 @@ test("a chave da aba usa o projeto e o id da conversa", () => {
     tabKey(".env - mercado - Cursor", tab),
     tabKey("Mercado Demo - mercado - Cursor", tab),
   );
+});
+
+test("o título do tópico começa pelo projeto", () => {
+  assert.equal(topicTitle("mercado - Cursor", { title: "Auditoria" }), "mercado · Auditoria");
+  assert.equal(
+    topicTitle(".env - mercado - Cursor", { title: "perfil" }),
+    topicTitle("Mercado Demo - mercado - Cursor", { title: "perfil" }),
+  );
+  assert.equal(topicTitle("8366 - sig - Cursor", { title: "8557" }), "sig · 8557");
+  assert.equal(conversationName("sig", "sig · 8557"), "8557");
+  assert.equal(topicUrl("-1003909092376", 260), "https://t.me/c/3909092376/260");
 });
 
 test("ignora páginas que não são o Cursor", () => {
