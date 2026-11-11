@@ -1,4 +1,4 @@
-# Ponte Cursor para Telegram
+# Cursor remoto pelo Telegram
 
 Serviço local que lê as abas de agente do Cursor e deixa você acompanhar e responder pelo Telegram. Cada conversa vira um tópico do grupo. O que você escreve no tópico chega naquela aba. Enquanto o agente trabalha, uma mensagem de andamento é atualizada no lugar. A resposta final chega como mensagem nova. Pedido de aprovação chega com os botões **Aprovar** e **Recusar**.
 
@@ -14,7 +14,9 @@ Não tem tela de configuração. Roda na mesma máquina em que o Cursor está ab
 
 O computador precisa ficar ligado, com o Cursor aberto pela porta de depuração. A ponte não roda na nuvem.
 
-## 1. Clonar e configurar
+## 1. Preparar a máquina e configurar o bot
+
+Os comandos abaixo usam Linux e Bash. Confira a versão com `node --version`. O projeto usa recursos nativos do Node.js e dispensa a etapa de instalar pacotes com npm.
 
 ```bash
 git clone https://github.com/luizdeangeli/cursor-remote-telegram.git
@@ -28,12 +30,12 @@ Preencha no `.env`:
 | Variável | O que colocar |
 | --- | --- |
 | `TELEGRAM_BOT_TOKEN` | O token que o BotFather mostrou. Não compartilhe. |
-| `TELEGRAM_ALLOWED_USER_ID` | O seu id numérico. Se ficar vazio, a ponte trava no primeiro usuário que escrever no grupo. |
-| `TELEGRAM_CHAT_ID` | O id do grupo. É negativo. Se ficar vazio, a ponte usa o primeiro grupo em que você escrever. |
+| `TELEGRAM_ALLOWED_USER_ID` | O seu id numérico. Preencha antes de iniciar. Se ficar vazio, a primeira mensagem recebida pode definir o usuário autorizado. |
+| `TELEGRAM_CHAT_ID` | O id do grupo. É negativo. Se ficar vazio, a primeira mensagem aceita define o chat, inclusive se vier de uma conversa privada. |
 | `CDP_URL` | Deixe `http://127.0.0.1:9222`, a menos que você tenha mudado a porta. |
 | `POLL_INTERVAL_MS` | Intervalo de leitura do Cursor, em milissegundos. O padrão é `2000`. |
 
-Para descobrir o seu id, mande `/start` para o [@userinfobot](https://t.me/userinfobot). O id do grupo aparece no `/status` depois da primeira mensagem sua.
+Para descobrir o seu id, mande `/start` para o [@userinfobot](https://t.me/userinfobot). Se ainda não souber o ID do grupo, deixe apenas `TELEGRAM_CHAT_ID` em branco e faça o primeiro contato com o seu bot pelo General do grupo, como no passo 4.
 
 ## 2. Preparar o grupo
 
@@ -62,7 +64,9 @@ Um segundo `cursor` enquanto já existe um processo principal imprime que o DevT
 
 Confira no navegador: [http://127.0.0.1:9222/json](http://127.0.0.1:9222/json) precisa mostrar uma lista.
 
-## 4. Rodar
+## 4. Fazer o primeiro teste pelo celular
+
+Abra um projeto no Cursor e deixe uma conversa de agente visível na barra lateral. Em outro terminal, na pasta do repositório, inicie a ponte.
 
 ```bash
 node src/bridge.mjs
@@ -74,7 +78,14 @@ Ou:
 npm start
 ```
 
-Escreva qualquer coisa no grupo, com a conta cujo id está em `TELEGRAM_ALLOWED_USER_ID`. Essa mensagem prende o chat. Em seguida mande `/recarregar` no tópico **General**. A ponte cria um tópico para cada conversa de agente aberta.
+1. No **General** do grupo, envie `/status` com a conta configurada. Confira o ID em **Chat**, **Tópicos: sim** e pelo menos uma janela visível. Se deixou o ID do grupo em branco, copie o número completo, incluindo o sinal de menos, para `TELEGRAM_CHAT_ID` no arquivo `.env`. Reinicie a ponte para aplicar a edição.
+2. Ainda no General, envie `/abas` e confira o nome da conversa aberta. Envie `/recarregar` para sincronizar os tópicos. Ao fechar uma aba, esse comando também pode apagar o tópico correspondente e seu histórico no Telegram.
+3. Abra o tópico com o nome da conversa e envie **Responda apenas com “Ponte funcionando”.**
+4. Confira **Enviado.** no Telegram, o mesmo prompt na aba do Cursor e a resposta final no tópico. A confirmação de envio aparece antes da resposta do agente.
+
+## 5. Manter a ponte em execução no Linux
+
+Encerre a execução manual com `Ctrl+C` antes de iniciar o serviço. Confira `command -v node`. Se o caminho for diferente de `/usr/bin/node`, ajuste a linha `ExecStart` na unidade gerada antes de executar `daemon-reload`.
 
 Para deixar no ar depois de sair do terminal, no Linux com systemd de usuário:
 
@@ -82,12 +93,17 @@ Para deixar no ar depois de sair do terminal, no Linux com systemd de usuário:
 mkdir -p ~/.config/systemd/user
 sed "s|@ROOT@|$(pwd)|g" systemd/cursor-telegram.service \
   > ~/.config/systemd/user/cursor-telegram.service
+```
+
+Depois de conferir o caminho do Node na unidade, ative o serviço.
+
+```bash
 systemctl --user daemon-reload
 systemctl --user enable --now cursor-telegram.service
 systemctl --user status cursor-telegram.service
 ```
 
-Se o `node` não estiver em `/usr/bin/node`, troque o `ExecStart` da unidade pelo caminho de `which node`.
+Após editar o `.env`, aplique as mudanças com `systemctl --user restart cursor-telegram.service`.
 
 Os logs ficam em:
 
@@ -95,7 +111,7 @@ Os logs ficam em:
 journalctl --user -u cursor-telegram.service -f
 ```
 
-Para o serviço subir no boot sem uma sessão gráfica aberta:
+Opcionalmente, habilite o início do serviço de usuário no boot. Para interagir com o agente, o Cursor ainda precisa estar aberto em uma sessão gráfica com a porta de depuração ativa.
 
 ```bash
 sudo loginctl enable-linger "$USER"
@@ -133,7 +149,17 @@ Os botões do General repetem Abas, Recarregar, Status, Tela, Parar e Ajuda. Tel
 
 `/start` e `/help` fazem o mesmo que `/ajuda`.
 
-## Se a leitura quebrar
+## Diagnóstico por sintoma
+
+| O que você observa | O que verificar |
+| --- | --- |
+| O bot ignora `/status` | Confira se a ponte está rodando, se o token pertence ao bot adicionado e se os IDs correspondem à conta e ao grupo que enviaram o comando. |
+| O bot responde, mas mostra zero janelas | Abra a lista local em `http://127.0.0.1:9222/json`. Se a conexão falhar, encerre o Cursor pelo menu e repita o passo 3. |
+| A janela aparece e falta uma conversa | Deixe a aba visível fora de **More**, envie `/abas` e depois `/recarregar` no General. |
+| A aba aparece, mas o tópico não é criado | Confira **Tópicos: sim** em `/status` e a permissão **Gerenciar tópicos** do bot. |
+| A ponte funciona no terminal, mas falha como serviço | Confira `WorkingDirectory` e `ExecStart` com `systemctl --user cat cursor-telegram.service` e consulte o log do passo 5. |
+
+### Diagnosticar mudanças na interface do Cursor
 
 A ponte lê a tela do Cursor. Uma atualização do editor pode mudar os seletores em `selectors.json`. Para ver o que a porta está expondo:
 

@@ -31,6 +31,8 @@ Enquanto o agente trabalha, uma mensagem “Trabalhando…” é editada. Quando
 
 - A chave do tópico é `pasta::nome da conversa`. O título da janela muda com o arquivo aberto (`.env - mercado`, `Browser Tab - mercado`, `Mercado Demo - mercado`). Usar esse título criou tópicos duplicados. A pasta é o último trecho antes de ` - Cursor`.
 - Se já existe tópico com o mesmo nome, a ponte muda a chave no estado e não cria outro. O id do thread só sai do estado depois que o Telegram confirma a exclusão, ou quando o tópico já não existe.
+- Cada tópico é gravado em `data/state.json` logo depois do `createForumTopic`. Antes a gravação vinha só no fim da leitura; com 20 conversas e as esperas de 429, um reinício no meio perdia os ids e a próxima rodada recriava tudo. O SIGTERM espera a última gravação.
+- A procura por tópico com o mesmo nome fica restrita à mesma pasta. Janela sem lista de agentes (aba sintética) não ganha tópico, e nada sem tópico vai para o General.
 - A leitura do Cursor e o `/recarregar` entram na mesma fila. Os dois ao mesmo tempo criavam um segundo tópico e esqueciam o id. O Bot API não lista tópicos; a limpeza desses ids perdidos foi manual.
 - Pensamento do Cursor (`data-message-kind="thinking"`, texto “Thought” / “Thinking”) não é resposta. Ferramenta (`kind=tool`) também não. O papel `ai` sozinho não basta: o pensamento também vem com `data-message-role="ai"`.
 - A lista `.agent-sidebar-list` tem altura zero. O nome real está em `.agent-sidebar-cell-text`. O clique que troca de conversa é na barra visível `.composite-bar-action-tab`, pelo título. Se `.auxiliary-bar-chat-title` já é essa conversa, não clica.
