@@ -404,6 +404,45 @@ test("no modo escolhidas só a conversa incluída ganha tópico", async () => {
   assert.match(telegram.sent.at(-1).text, /Oculta: mercado · Auditoria/);
 });
 
+test("adicionar todos espelha as conversas visíveis do projeto", async () => {
+  const cursor = new FakeCursor([windowOf()]);
+  const telegram = new FakeTelegram();
+  const bridge = bridgeFor(cursor, telegram);
+  bridge.config.shareMode = "escolhidas";
+  bridge.state.forum = true;
+  await bridge.syncOnce();
+  await bridge.handleUpdate({
+    update_id: 70,
+    callback_query: {
+      id: "list",
+      data: "g:0:mercado",
+      from: { id: 42 },
+      message: { message_thread_id: 1, chat: { id: -1001 } },
+    },
+  });
+  const listed = telegram.sent.at(-1).reply_markup.inline_keyboard.flat();
+  const addAll = listed.find((button) => button.text === "Adicionar todos");
+  assert.equal(addAll.callback_data, `A:${shortId("mercado")}`);
+  await bridge.handleUpdate({
+    update_id: 71,
+    callback_query: {
+      id: "all",
+      data: addAll.callback_data,
+      from: { id: 42 },
+      message: { message_thread_id: 1, chat: { id: -1001 } },
+    },
+  });
+  assert.ok(bridge.state.topics["mercado::a"].threadId);
+  assert.ok(bridge.state.topics["mercado::b"].threadId);
+  assert.equal(bridge.state.shared["mercado::a"], true);
+  assert.equal(bridge.state.shared["mercado::b"], true);
+  assert.match(telegram.sent.map((message) => message.text || "").join("\n"), /Incluí 2 conversas de mercado/);
+  const after = telegram.sent.at(-1).reply_markup.inline_keyboard.flat().map((button) => button.text);
+  assert.equal(after.includes("Adicionar todos"), false);
+  assert.equal(after.includes("Auditoria"), true);
+  assert.equal(after.includes("Perfil"), true);
+});
+
 test("recarregar no modo escolhidas apaga os tópicos e a seleção", async () => {
   const cursor = new FakeCursor([windowOf()]);
   const telegram = new FakeTelegram();

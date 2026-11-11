@@ -127,7 +127,7 @@ export class Bridge {
   needsCursor(update) {
     if (update?.callback_query) {
       const data = update.callback_query.data || "";
-      return /^(a:|r:|e:|i:|o:)/.test(data) || ["m:parar", "m:recarregar", "m:reload", "m:tela"].includes(data);
+      return /^(a:|r:|e:|i:|o:|A:)/.test(data) || ["m:parar", "m:recarregar", "m:reload", "m:tela"].includes(data);
     }
     const message = update?.message;
     if (!message || message.from?.is_bot) return false;
@@ -366,6 +366,12 @@ export class Bridge {
     return this.config.shareMode === "escolhidas";
   }
 
+  projectByShort(short) {
+    const names = new Set(this.openProjects());
+    for (const tab of this.tabs()) names.add(tab.projectName || tab.key.split("::")[0]);
+    return [...names].find((name) => name && shortId(name) === short) || "";
+  }
+
   keyByShort(short) {
     const keys = new Set([
       ...this.tabs().map((tab) => tab.key),
@@ -554,8 +560,13 @@ export class Bridge {
     const head = pages > 1
       ? `${project}. Página ${current + 1} de ${pages}. Inclua o que quer espelhar.`
       : `${project}. Inclua o que quer espelhar.`;
+    const rows = slice.map((entry) => this.shareRow(project, entry));
+    if (entries.some((entry) => !entry.threadId)) {
+      rows.push([{ text: "Adicionar todos", callback_data: `A:${shortId(project)}` }]);
+    }
+    rows.push(nav);
     await this.reply(threadId, head, {
-      reply_markup: { inline_keyboard: [...slice.map((entry) => this.shareRow(project, entry)), nav] },
+      reply_markup: { inline_keyboard: rows },
     });
   }
 
@@ -650,6 +661,47 @@ export class Bridge {
       return;
     }
     await this.showShareList(threadId, tab.projectName || key.split("::")[0], 0);
+  }
+
+  async includeProject(threadId, project) {
+    if (!this.sharesSelected()) {
+      await this.reply(threadId, "O modo atual já compartilha todas as abas.");
+      return;
+    }
+    const tabs = this.tabs().filter((tab) => (
+      !tab.synthetic
+      && !tab.ambiguous
+      && tab.window
+      && (tab.projectName || tab.key.split("::")[0]) === project
+      && !this.state.topics[tab.key]?.threadId
+    ));
+    if (!tabs.length) {
+      await this.reply(threadId, `As conversas visíveis de ${project} já estão espelhadas.`);
+      await this.showShareList(threadId, project, 0);
+      return;
+    }
+    let included = 0;
+    const failed = [];
+    for (const tab of tabs) {
+      this.state.shared ||= {};
+      this.state.shared[tab.key] = true;
+      try {
+        await this.createSharedTopic(tab);
+        included += 1;
+      } catch (error) {
+        delete this.state.shared[tab.key];
+        failed.push(conversationName(project, tab.title));
+        this.logEvent("telegram", { event: "include_project", error: error.message, dest: tab.key });
+      }
+    }
+    await this.persist().catch((error) => {
+      this.state.lastError = `persistência: ${error.message}`;
+    });
+    const word = included === 1 ? "conversa" : "conversas";
+    const lines = [`Incluí ${included} ${word} de ${project}.`];
+    if (failed.length) lines.push(`Não abri: ${failed.slice(0, 8).join(", ")}.`);
+    await this.reply(threadId, lines.join("\n"));
+    await this.showShareList(threadId, project, 0);
   }
 
   async hideTab(threadId, key, { refresh = false } = {}) {
@@ -1710,6 +1762,17 @@ export class Bridge {
       await this.ackCallback(query.id, "");
       if (!match) return;
       await this.showProjectTopics(threadId, match[2], Number(match[1]));
+      return;
+    }
+    if (data.startsWith("A:")) {
+      const threadId = query.message?.message_thread_id || 1;
+      const project = this.projectByShort(data.slice(2));
+      await this.ackCallback(query.id, "");
+      if (!project) {
+        await this.reply(threadId, "Não achei esse projeto.");
+        return;
+      }
+      await this.includeProject(threadId, project);
       return;
     }
     if (data.startsWith("i:") || data.startsWith("o:")) {
