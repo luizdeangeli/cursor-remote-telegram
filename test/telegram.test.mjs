@@ -9,6 +9,7 @@ test("classifica token, permissão, destino, limite e tempo esgotado", () => {
   assert.equal(classifyTelegramError({ code: 400, message: "message thread not found" }), "missing_destination");
   assert.equal(classifyTelegramError({ code: 429 }), "rate_limit");
   assert.equal(classifyTelegramError({ name: "TimeoutError" }), "temporary");
+  assert.equal(classifyTelegramError({ code: 400, message: "Bad Request: query is too old" }), "callback");
   assert.equal(classifyTelegramError({ code: 500 }), "temporary");
 });
 

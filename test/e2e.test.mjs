@@ -580,10 +580,37 @@ test("atualiza os botões do menu já fixado", async () => {
   assert.equal(telegram.markups[0].messageId, 540);
   assert.equal(telegram.markups[0].replyMarkup.inline_keyboard[0][0].text, "Projetos");
   assert.equal(telegram.markups[0].replyMarkup.inline_keyboard[1][0].text, "Ativas");
+  assert.deepEqual(
+    telegram.markups[0].replyMarkup.inline_keyboard.flat().map((button) => button.callback_data),
+    ["m:projetos", "m:ativas", "m:abas", "m:status", "m:diagnostico", "m:recarregar", "m:ajuda", "m:tela", "m:parar", "m:ultimo", "m:limpar", "m:ocultar", "m:esquecer"],
+  );
   assert.match(telegram.markups[0].text, /Todas/);
   telegram.markups = [];
   await bridge.ensureMenu();
   assert.equal(telegram.markups.length, 0);
+});
+
+test("o comando /menu publica o teclado de novo no fim do General", async () => {
+  const telegram = new FakeTelegram();
+  const bridge = bridgeFor(new FakeCursor([]), telegram);
+  bridge.state.forum = true;
+  bridge.state.menuMessageId = 540;
+  bridge.state.menuVersion = 5;
+  await bridge.handleUpdate({
+    update_id: 81,
+    message: {
+      message_id: 12,
+      message_thread_id: 1,
+      text: "/menu",
+      from: { id: 42 },
+      chat: { id: -1001 },
+    },
+  });
+  assert.equal(telegram.edits.some((edit) => edit.deleted && edit.messageId === 540), true);
+  const menu = telegram.sent.at(-1);
+  assert.equal(menu.message_thread_id, 1);
+  assert.equal(menu.reply_markup.inline_keyboard[0][0].callback_data, "m:projetos");
+  assert.equal(bridge.state.menuMessageId, menu.message_id);
 });
 
 test("o botão do menu no General executa o comando", async () => {
@@ -1015,6 +1042,55 @@ test("anexo não entra no Cursor e a legenda vira o prompt", async () => {
   });
   assert.match(telegram.sent.map((message) => message.text || "").join("\n"), /Não enviei o anexo/);
   assert.deepEqual(cursor.prompts.at(-1), { targetId: "w1", text: "olhe esta imagem", title: "Auditoria" });
+});
+
+test("botão atrasado ainda abre a ajuda", async () => {
+  const cursor = new FakeCursor([windowOf()]);
+  const telegram = new FakeTelegram();
+  telegram.answerCallback = async () => {
+    throw new Error("Bad Request: query is too old and response timeout expired or query ID is invalid");
+  };
+  const bridge = bridgeFor(cursor, telegram);
+  bridge.state.forum = true;
+  await bridge.handleUpdate({
+    update_id: 93,
+    callback_query: {
+      id: "velho",
+      data: "m:ajuda",
+      from: { id: 42 },
+      message: { message_thread_id: 1, chat: { id: -1001 } },
+    },
+  });
+  assert.match(telegram.sent.at(-1).text, /Escreva no tópico/);
+});
+
+test("ajuda responde enquanto a leitura do Cursor ainda não terminou", async () => {
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const cursor = new FakeCursor([windowOf()]);
+  cursor.windows = () => gate.then(() => cursor.data);
+  const telegram = new FakeTelegram();
+  const bridge = bridgeFor(cursor, telegram);
+  const sync = bridge.syncOnce();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const reply = bridge.handleUpdate({
+    update_id: 94,
+    message: {
+      message_id: 12,
+      message_thread_id: 1,
+      text: "/ajuda",
+      from: { id: 42 },
+      chat: { id: -1001 },
+    },
+  });
+  const result = await Promise.race([
+    reply.then(() => "ok"),
+    new Promise((resolve) => setTimeout(() => resolve("preso"), 400)),
+  ]);
+  assert.equal(result, "ok");
+  assert.match(telegram.sent.at(-1).text, /Escreva no tópico/);
+  release();
+  await sync;
 });
 
 test("sem tópicos, /parar usa a conversa escolhida", async () => {

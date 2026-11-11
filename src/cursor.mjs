@@ -245,10 +245,12 @@ export class CursorClient {
     this.sessions = new Map();
   }
 
-  async windows() {
+  async windows(onGap = async () => {}) {
     const targets = await listTargets(this.cdpUrl);
     const windows = [];
+    await onGap();
     for (const target of targets) {
+      await onGap();
       try {
         const session = await this.#session(target);
         const snapshot = await session.evaluate(readExpression(this.selectors));

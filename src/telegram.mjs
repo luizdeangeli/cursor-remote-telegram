@@ -9,6 +9,7 @@ export function classifyTelegramError(error) {
   }
   if (code === 401 || /unauthorized/i.test(message)) return "invalid_token";
   if (code === 403 || /not enough rights|administrator|forbidden/i.test(message)) return "permission";
+  if (/query is too old|query ID is invalid|already been answered/i.test(message)) return "callback";
   if (code === 400 && /chat not found|bot was kicked|topic not found|thread not found|message thread not found/i.test(message)) {
     return "missing_destination";
   }
@@ -82,7 +83,11 @@ export class Telegram {
           signal: AbortSignal.any([AbortSignal.timeout(timeout), this.abort.signal]),
         });
       } catch (error) {
-        error.code = error.code || 0;
+        try {
+          if (error.code == null) error.code = 0;
+        } catch {
+          // AbortError deixa code só para leitura.
+        }
         if (method !== "getUpdates" && classifyTelegramError(error) === "temporary" && attempt < 3) {
           await sleep(backoffMs(attempt));
           return exec(attempt + 1);

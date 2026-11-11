@@ -21,7 +21,7 @@ import { acquireLock, BACKUP_INTERVAL_MS, loadState, pruneHistory, releaseLock, 
 import { classifyTelegramError, Telegram } from "./telegram.mjs";
 
 const TOPIC_PAGE = 8;
-const MENU_VERSION = 4;
+const MENU_VERSION = 5;
 
 function menuText(selected) {
   return selected
@@ -32,15 +32,30 @@ function menuText(selected) {
 function menuMarkup() {
   return {
     inline_keyboard: [
-      [
-        { text: "Projetos", callback_data: "m:projetos" },
-      ],
+      [{ text: "Projetos", callback_data: "m:projetos" }],
       [
         { text: "Ativas", callback_data: "m:ativas" },
+        { text: "Abas", callback_data: "m:abas" },
       ],
       [
         { text: "Status", callback_data: "m:status" },
+        { text: "Diagnóstico", callback_data: "m:diagnostico" },
+      ],
+      [
+        { text: "Recarregar", callback_data: "m:recarregar" },
         { text: "Ajuda", callback_data: "m:ajuda" },
+      ],
+      [
+        { text: "Tela", callback_data: "m:tela" },
+        { text: "Parar", callback_data: "m:parar" },
+      ],
+      [
+        { text: "Último", callback_data: "m:ultimo" },
+        { text: "Limpar", callback_data: "m:limpar" },
+      ],
+      [
+        { text: "Ocultar", callback_data: "m:ocultar" },
+        { text: "Esquecer", callback_data: "m:esquecer" },
       ],
     ],
   };
@@ -96,6 +111,8 @@ export class Bridge {
     this.pendingNotices = [];
     this.saveChain = Promise.resolve();
     this.syncChain = Promise.resolve();
+    this.syncing = false;
+    this.cursorJobs = [];
     this.selectorMisses = 0;
     this.lastSavedSignature = "";
     this.lastCheckpointAt = 0;
@@ -105,6 +122,41 @@ export class Bridge {
     const run = this.syncChain.then(() => fn());
     this.syncChain = run.then(() => {}, () => {});
     return run;
+  }
+
+  needsCursor(update) {
+    if (update?.callback_query) {
+      const data = update.callback_query.data || "";
+      return /^(a:|r:|e:|i:|o:)/.test(data) || ["m:parar", "m:recarregar", "m:reload", "m:tela"].includes(data);
+    }
+    const message = update?.message;
+    if (!message || message.from?.is_bot) return false;
+    const text = message.text || message.caption || "";
+    const command = commandOf(text);
+    if (!command) return Boolean(text.trim());
+    return ["recarregar", "reload", "parar", "tela", "ocultar", "esquecer"].includes(command.name);
+  }
+
+  async drainCursorJobs() {
+    while (this.cursorJobs.length) {
+      const job = this.cursorJobs.shift();
+      try {
+        job.resolve(await this.applyUpdate(job.update));
+      } catch (error) {
+        job.reject(error);
+      }
+    }
+  }
+
+  async ackCallback(id, text = "") {
+    if (!id) return;
+    try {
+      await this.telegram.answerCallback(id, text);
+    } catch (error) {
+      if (!/too old|query ID is invalid|already been answered/i.test(error.message)) {
+        this.logEvent("telegram", { event: "callback_ack", error: error.message });
+      }
+    }
   }
 
   logEvent(category, fields = {}) {
@@ -716,6 +768,7 @@ export class Bridge {
     this.markAmbiguousProjects();
     if (unlink) this.unlinkMissing();
     for (const tab of this.tabs()) {
+      await this.drainCursorJobs();
       if (tab.synthetic || tab.ambiguous) continue;
       const existingKey = findExistingTopic(this.state.topics, tab);
       if (existingKey) {
@@ -828,6 +881,7 @@ export class Bridge {
     const chatId = this.chatId();
     if (!chatId) return;
     for (const tab of this.tabs()) {
+      await this.drainCursorJobs();
       if (!tab.active) continue;
       const key = tab.key;
       this.rememberHistory(key, tab.window.messages || [], { truncated: tab.window.historyTruncated });
@@ -926,6 +980,7 @@ export class Bridge {
     const chatId = this.chatId();
     if (!chatId || this.state.forum === false) return;
     for (const tab of this.tabs()) {
+      await this.drainCursorJobs();
       const topic = this.state.topics[tab.key];
       if (!topic?.threadId || topic.closed || topic.retired) continue;
       const mode = tab.active && topicIcons[tab.window.status] ? tab.window.status : "unobserved";
@@ -941,14 +996,22 @@ export class Bridge {
   }
 
   async syncOnce() {
-    return this.exclusive(() => this.syncBody());
+    return this.exclusive(async () => {
+      this.syncing = true;
+      try {
+        await this.syncBody();
+      } finally {
+        this.syncing = false;
+        await this.drainCursorJobs();
+      }
+    });
   }
 
   async syncBody() {
     const notes = reconcileOperations(this.state.operations, Date.now(), process.pid);
     const tokenNotes = reconcileTokens(this.state.approvalTokens, Date.now(), process.pid);
     try {
-      this.windows = await this.cursor.windows();
+      this.windows = await this.cursor.windows(() => this.drainCursorJobs());
       this.state.lastCursorReadAt = Date.now();
       this.noteSelectors();
       const wasDown = this.state.cdpDownNotified;
@@ -1020,11 +1083,19 @@ export class Bridge {
     }
   }
 
-  async ensureMenu() {
+  async ensureMenu({ fresh = false } = {}) {
     const chatId = this.chatId();
     if (!chatId || this.state.forum === false) return;
     const text = menuText(this.sharesSelected());
     const markup = menuMarkup();
+    if (fresh && this.state.menuMessageId) {
+      try {
+        await this.telegram.deleteMessage(chatId, this.state.menuMessageId);
+      } catch (error) {
+        this.logEvent("telegram", { event: "delete_menu", error: error.message });
+      }
+      this.state.menuMessageId = null;
+    }
     if (this.state.menuMessageId && this.state.menuVersion === MENU_VERSION) return;
     if (this.state.menuMessageId) {
       try {
@@ -1099,6 +1170,12 @@ export class Bridge {
 
   async handleUpdate(update) {
     if (!this.intakeOpen) return null;
+    if (!this.needsCursor(update)) return this.applyUpdate(update);
+    if (this.syncing) {
+      return new Promise((resolve, reject) => {
+        this.cursorJobs.push({ update, resolve, reject });
+      });
+    }
     return this.exclusive(() => this.applyUpdate(update));
   }
 
@@ -1319,8 +1396,7 @@ export class Bridge {
 
   async handleCommand(command, threadId) {
     if (command.name === "menu") {
-      this.state.menuMessageId = null;
-      await this.ensureMenu();
+      await this.ensureMenu({ fresh: true });
       return;
     }
     if (command.name === "diagnostico") {
@@ -1575,14 +1651,14 @@ export class Bridge {
     const expectedChat = this.chatId();
     const chatId = String(query.message?.chat?.id || "");
     if (!expectedUser || String(query.from?.id) !== expectedUser || !chatId || chatId !== expectedChat) {
-      await this.telegram.answerCallback(query.id, "Sem permissão");
+      await this.ackCallback(query.id, "Sem permissão");
       return;
     }
     const data = query.data || "";
     if (data.startsWith("m:")) {
       const name = data.slice(2);
       const threadId = query.message?.message_thread_id || 1;
-      await this.telegram.answerCallback(query.id, "");
+      await this.ackCallback(query.id, "");
       if (name === "parar") {
         if (this.state.forum !== false && (!threadId || threadId === 1)) {
           await this.reply(threadId || 1, "Use /parar dentro do tópico da conversa.");
@@ -1611,13 +1687,13 @@ export class Bridge {
     }
     if (data.startsWith("p:")) {
       const threadId = query.message?.message_thread_id || 1;
-      await this.telegram.answerCallback(query.id, "");
+      await this.ackCallback(query.id, "");
       await this.showProjectHome(threadId, data.slice(2));
       return;
     }
     if (data.startsWith("c:")) {
       const threadId = query.message?.message_thread_id || 1;
-      await this.telegram.answerCallback(query.id, "");
+      await this.ackCallback(query.id, "");
       if (data === "c:cancelar") {
         await this.reply(threadId, "Cancelado.");
         return;
@@ -1631,7 +1707,7 @@ export class Bridge {
     if (data.startsWith("g:")) {
       const threadId = query.message?.message_thread_id || 1;
       const match = /^g:(\d+):(.*)$/.exec(data);
-      await this.telegram.answerCallback(query.id, "");
+      await this.ackCallback(query.id, "");
       if (!match) return;
       await this.showProjectTopics(threadId, match[2], Number(match[1]));
       return;
@@ -1639,7 +1715,7 @@ export class Bridge {
     if (data.startsWith("i:") || data.startsWith("o:")) {
       const threadId = query.message?.message_thread_id || 1;
       const key = this.keyByShort(data.slice(2));
-      await this.telegram.answerCallback(query.id, "");
+      await this.ackCallback(query.id, "");
       if (!key) {
         await this.reply(threadId, "Não achei essa conversa.");
         return;
@@ -1649,7 +1725,7 @@ export class Bridge {
       return;
     }
     if (data.startsWith("n:")) {
-      await this.telegram.answerCallback(query.id, "Essa conversa ainda não tem tópico.");
+      await this.ackCallback(query.id, "Essa conversa ainda não tem tópico.");
       return;
     }
     if (data.startsWith("e:")) {
@@ -1666,12 +1742,12 @@ export class Bridge {
       expectedChatId: expectedChat,
     });
     if (!kind || !verdict.ok) {
-      await this.telegram.answerCallback(query.id, verdict.message || "Esse pedido expirou");
+      await this.ackCallback(query.id, verdict.message || "Esse pedido expirou");
       return;
     }
     const originThread = query.message?.message_thread_id || 0;
     if (token.threadId && originThread && originThread !== token.threadId) {
-      await this.telegram.answerCallback(query.id, "Sem permissão");
+      await this.ackCallback(query.id, "Sem permissão");
       return;
     }
     token.status = "em_execucao";
@@ -1682,14 +1758,14 @@ export class Bridge {
       token.status = "pending";
       token.ownerPid = 0;
       this.state.lastError = `persistência: ${error.message}`;
-      await this.telegram.answerCallback(query.id, "Não registrei a aprovação. Toque de novo.");
+      await this.ackCallback(query.id, "Não registrei a aprovação. Toque de novo.");
       return;
     }
     const tab = this.tabs().find((item) => item.key === token.key);
     if (!tab?.window) {
       token.status = "invalid";
       await this.persist().catch(() => {});
-      await this.telegram.answerCallback(query.id, "Aba fechada");
+      await this.ackCallback(query.id, "Aba fechada");
       return;
     }
     try {
@@ -1698,32 +1774,32 @@ export class Bridge {
       if (!this.titleMatches(surface, tab.tab?.title || "")) {
         token.status = "invalid";
         await this.persist().catch(() => {});
-        await this.telegram.answerCallback(query.id, "Não confirmei a conversa");
+        await this.ackCallback(query.id, "Não confirmei a conversa");
         return;
       }
       if (!approvalStillMatches(token, surface.approvals)) {
         token.status = "invalid";
         await this.persist().catch(() => {});
-        await this.telegram.answerCallback(query.id, "O pedido mudou");
+        await this.ackCallback(query.id, "O pedido mudou");
         return;
       }
       const match = (surface.approvals || []).find((item) => approvalHash(item) === token.hash);
       await this.cursor.clickKind(tab.window.targetId, kind, match?.index || 0);
       token.status = "consumed";
       await this.persist().catch(() => {});
-      await this.telegram.answerCallback(query.id, kind === "approve" ? "Aprovado" : "Recusado");
+      await this.ackCallback(query.id, kind === "approve" ? "Aprovado" : "Recusado");
     } catch (error) {
       if (error.beforeEffect) {
         token.status = "pending";
         token.ownerPid = 0;
         await this.persist().catch(() => {});
-        await this.telegram.answerCallback(query.id, error.message.slice(0, 180));
+        await this.ackCallback(query.id, error.message.slice(0, 180));
         return;
       }
       token.status = "uncertain";
       token.error = error.message;
       await this.persist().catch(() => {});
-      await this.telegram.answerCallback(query.id, "Resultado incerto. Não repeti o clique.");
+      await this.ackCallback(query.id, "Resultado incerto. Não repeti o clique.");
     }
   }
 
@@ -1732,22 +1808,22 @@ export class Bridge {
     const tokenId = cancel ? data.slice(4) : data.slice(2);
     const token = this.state.forgetTokens?.[tokenId];
     if (!token || token.expiresAt < Date.now()) {
-      await this.telegram.answerCallback(query.id, "Esse pedido expirou");
+      await this.ackCallback(query.id, "Esse pedido expirou");
       return;
     }
     const originThread = query.message?.message_thread_id || 0;
     if (token.threadId && originThread && originThread !== token.threadId) {
-      await this.telegram.answerCallback(query.id, "Sem permissão");
+      await this.ackCallback(query.id, "Sem permissão");
       return;
     }
     delete this.state.forgetTokens[tokenId];
     if (cancel) {
-      await this.telegram.answerCallback(query.id, "Cancelado");
+      await this.ackCallback(query.id, "Cancelado");
       return;
     }
     const removed = await this.forgetTopic(this.chatId(), token.key);
     await this.persist().catch(() => {});
-    await this.telegram.answerCallback(query.id, removed ? "Histórico apagado" : "Não consegui apagar");
+    await this.ackCallback(query.id, removed ? "Histórico apagado" : "Não consegui apagar");
   }
 
   async pair(code, userId, chatId, threadId) {
@@ -1818,6 +1894,10 @@ export class Bridge {
       } catch (error) {
         if (!this.running) return;
         const kind = classifyTelegramError(error);
+        if (kind === "callback") {
+          this.logEvent("telegram", { event: "callback_ack", error: error.message });
+          continue;
+        }
         this.state.lastError = `Telegram (${kind}): ${error.message}`;
         this.logEvent("telegram", { event: "down", kind, error: error.message });
         if (kind === "invalid_token") {

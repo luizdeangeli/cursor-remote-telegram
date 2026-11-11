@@ -161,7 +161,7 @@ Mensagem de qualquer outro usuário é ignorada.
 | `/parear CODIGO` | General | Autoriza a conta e o grupo com o código impresso no terminal |
 | `/recarregar` | Só no General | No modo `todas`, marca conversas fechadas e mantém o histórico. No modo `escolhidas`, apaga os tópicos e a seleção |
 
-Os botões do General são Projetos, Ativas, Status e Ajuda. Com tópicos, `/tela` e `/parar` no General são recusados para não agir na conversa visível por engano.
+Os botões do General são Projetos, Ativas, Abas, Status, Diagnóstico, Recarregar, Ajuda, Tela, Parar, Último, Limpar, Ocultar e Esquecer. Com tópicos, Tela, Parar, Último, Limpar, Ocultar e Esquecer no General pedem para usar o tópico da conversa. `/usar` e `/parear` continuam só por texto, porque pedem um argumento.
 
 `/start` e `/help` fazem o mesmo que `/ajuda`.
 
