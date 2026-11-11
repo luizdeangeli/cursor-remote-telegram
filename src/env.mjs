@@ -33,6 +33,12 @@ export function interpretPoll(raw) {
   return { value };
 }
 
+export function interpretShare(raw) {
+  const text = raw == null || String(raw).trim() === "" ? "todas" : String(raw).trim().toLowerCase();
+  if (text === "todas" || text === "escolhidas") return { value: text };
+  return { error: `COMPARTILHAR inválido (${raw}). Use todas ou escolhidas.` };
+}
+
 export function validateConfig(config) {
   const errors = [];
   if (!config.token) errors.push("Falta TELEGRAM_BOT_TOKEN em .env.");
@@ -43,6 +49,7 @@ export function validateConfig(config) {
     errors.push("TELEGRAM_CHAT_ID precisa ser numérico, incluindo o sinal de menos do grupo.");
   }
   if (config.pollError) errors.push(config.pollError);
+  if (config.shareError) errors.push(config.shareError);
   if (!config.cdpUrl) errors.push("CDP_URL está vazio.");
   return errors;
 }
@@ -56,6 +63,7 @@ export async function loadConfig(envPath = path.join(rootDir, ".env")) {
   }
   const pick = (key, fallback = "") => process.env[key] ?? file[key] ?? fallback;
   const poll = interpretPoll(pick("POLL_INTERVAL_MS", "2000"));
+  const share = interpretShare(pick("COMPARTILHAR", "todas"));
   return {
     token: pick("TELEGRAM_BOT_TOKEN").trim(),
     allowedUserId: pick("TELEGRAM_ALLOWED_USER_ID").trim(),
@@ -64,6 +72,7 @@ export async function loadConfig(envPath = path.join(rootDir, ".env")) {
     pollIntervalMs: poll.value || 0,
     pollError: poll.error || "",
     apiBase: pick("TELEGRAM_API_BASE", "https://api.telegram.org").replace(/\/$/, ""),
-    shareMode: pick("COMPARTILHAR", "todas").trim().toLowerCase() === "escolhidas" ? "escolhidas" : "todas",
+    shareMode: share.value || "todas",
+    shareError: share.error || "",
   };
 }

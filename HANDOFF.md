@@ -50,7 +50,9 @@ Enquanto o agente trabalha, uma mensagem “Trabalhando…” é editada. Quando
 - A janela “Cursor Agents” não tem essa lista. O tópico dela usa o nome da janela.
 - Fila de envio de cerca de 350 ms. Callback tem prioridade sobre atualização de ícone. HTTP 429 espera `retry_after`. Erro 401, 403, 400, 5xx e rede são classificados. A resposta `message is not modified` não é erro. Long poll usa o timeout do Telegram mais 15 s. SIGINT e SIGTERM param a entrada, abortam o fetch, esperam até 8 s, marcam a operação em curso como incerta e soltam o bloqueio.
 - O estado só vai para o disco quando o conteúdo muda. `lastCursorReadAt` sozinho não regrava. A cópia `.bak1` gira no máximo a cada 5 minutos. O temporário recebe `fsync` antes do `rename`, e o diretório também. `data/` fica em modo 700 e os arquivos em 600.
-- O histórico local guarda até 40 mensagens por conversa. Conversas que não estão na tela nem num tópico aberto saem depois de 14 dias, e o que passar de 30 entradas perde as mais antigas. Tópico aberto e aba visível ficam.
+- O histórico local guarda até 40 mensagens por conversa e 20.000 caracteres por mensagem. O corte fica marcado. Conversas que não estão na tela nem num tópico aberto saem depois de 14 dias, e o que passar de 30 entradas perde as mais antigas. Tópico aberto e aba visível ficam.
+- Resposta acima de 8.000 caracteres vai como arquivo. Anexo do Telegram não entra no Cursor; a legenda segue como prompt.
+- Só a conversa visível tem ícone de andamento. As outras ficam sem ícone e aparecem como **sem leitura**. `COMPARTILHAR` fora de `todas` ou `escolhidas` impede a ponte de subir.
 - Seletores zerados ou inválidos em todas as janelas legíveis, por duas leituras seguidas, avisam no grupo. A leitura seguinte que encontrar a interface avisa que voltou.
 
 ## Como retomar
@@ -71,7 +73,7 @@ Estado inválido não é substituído por estado vazio. Se existir `.bak1`–`.b
 
 ## Pendências
 
-- Anexos e o acompanhamento de conversas fora da aba ativa ficam para depois desta base. Conversa atrás de More continua fora da leitura.
+- Encaminhar arquivo para dentro do Cursor continua fora. A ponte só recusa o anexo e preserva a legenda. Conversa atrás de More continua fora da leitura. A ponte não alterna abas só para observar.
 - A conversa completa só está no DOM da aba ativa. `/ultimo` numa aba inativa usa o histórico local daquela conversa e não mostra o texto de outra.
 - Bolhas antigas de “Thought” que já foram para o grupo continuam lá. A ponte não guarda o id de cada uma para apagar.
 - O computador precisa ficar ligado, com o Cursor na porta 9222.

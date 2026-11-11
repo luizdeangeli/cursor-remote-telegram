@@ -106,6 +106,12 @@ class FakeTelegram {
     this.icons.push({ threadId, emojiId });
   }
 
+  async sendDocument(chatId, text, extra = {}) {
+    const message = { message_id: this.nextMessage++, chatId, document: text, ...extra };
+    this.sent.push(message);
+    return message;
+  }
+
   async deleteForumTopic(_chatId, threadId) {
     this.deletedTopics = this.deletedTopics || [];
     this.deletedTopics.push(threadId);
@@ -212,6 +218,8 @@ test("mostra o andamento, a resposta final e não repete depois de reiniciar", a
   cursor.data[0].messages = [{ id: "m1", role: "assistant", text: "login revisado" }];
   await bridge.syncOnce();
   assert.equal(iconOf(), "5417915203100613993");
+  const hidden = bridge.state.topics["mercado::b"].threadId;
+  assert.equal(telegram.icons.filter((icon) => icon.threadId === hidden).at(-1).emojiId, "");
   assert.ok(telegram.sent.some((message) => message.text === "login revisado"));
   const finalCount = telegram.sent.filter((message) => message.text === "login revisado").length;
 
@@ -472,7 +480,7 @@ test("abas agrupa por projeto e liga cada tópico", async () => {
   const mercado = groups[0].reply_markup.inline_keyboard;
   assert.equal(mercado[0][0].text, "Auditoria · ativa");
   assert.equal(mercado[0][0].url, "https://t.me/c/1/20");
-  assert.equal(mercado[1][0].text, "Perfil");
+  assert.equal(mercado[1][0].text, "Perfil · sem leitura");
   assert.equal(mercado[1][0].url, "https://t.me/c/1/21");
   assert.equal(groups[1].reply_markup.inline_keyboard[0][0].url, "https://t.me/c/1/30");
 });
@@ -520,7 +528,7 @@ test("projetos lista as janelas e o toque abre o tópico", async () => {
   const topics = telegram.sent.at(-1).reply_markup.inline_keyboard;
   assert.equal(topics[0][0].text, "Auditoria");
   assert.equal(topics[0][0].url, "https://t.me/c/1/20");
-  assert.equal(topics[1][0].text, "Perfil");
+  assert.equal(topics[1][0].text, "Perfil · sem leitura");
   assert.equal(topics[1][0].url, "https://t.me/c/1/21");
   assert.equal(topics.at(-1).some((button) => button.callback_data === "m:projetos"), true);
 });
@@ -969,4 +977,63 @@ test("avisa uma vez quando os seletores somem e avisa quando voltam", async () =
   cursor.data[0].probe = { sidebarCells: 2, messageNodes: 4, composer: 1, barTabs: 1 };
   await bridge.syncOnce();
   assert.match(telegram.sent.at(-1).text, /Voltei a ler a interface/);
+});
+
+test("histórico longo marca o corte e a resposta vai em arquivo", async () => {
+  const text = "a".repeat(20001);
+  const cursor = new FakeCursor([windowOf({
+    messages: [{ id: "longo", role: "assistant", text }],
+    status: "idle",
+  })]);
+  const telegram = new FakeTelegram();
+  const bridge = bridgeFor(cursor, telegram);
+  await bridge.syncOnce();
+  const stored = bridge.state.history["mercado::a"].messages[0];
+  assert.equal(stored.truncated, true);
+  assert.equal(stored.text.length, 20000);
+  const file = telegram.sent.find((message) => message.document);
+  assert.equal(file.document.length, 20001);
+  assert.match(file.caption, /arquivo/);
+});
+
+test("anexo não entra no Cursor e a legenda vira o prompt", async () => {
+  const cursor = new FakeCursor([windowOf()]);
+  const telegram = new FakeTelegram();
+  const bridge = bridgeFor(cursor, telegram);
+  await bridge.syncOnce();
+  const threadId = bridge.state.topics["mercado::a"].threadId;
+  await bridge.handleUpdate({
+    update_id: 91,
+    message: {
+      message_id: 9,
+      message_thread_id: threadId,
+      caption: "olhe esta imagem",
+      photo: [{ file_id: "abc" }],
+      from: { id: 42 },
+      chat: { id: -1001 },
+    },
+  });
+  assert.match(telegram.sent.map((message) => message.text || "").join("\n"), /Não enviei o anexo/);
+  assert.deepEqual(cursor.prompts.at(-1), { targetId: "w1", text: "olhe esta imagem", title: "Auditoria" });
+});
+
+test("sem tópicos, /parar usa a conversa escolhida", async () => {
+  const cursor = new FakeCursor([windowOf()]);
+  const telegram = new FakeTelegram();
+  const bridge = bridgeFor(cursor, telegram);
+  bridge.state.forum = false;
+  bridge.windows = cursor.data;
+  bridge.state.activeTabKey = "mercado::a";
+  await bridge.handleUpdate({
+    update_id: 92,
+    message: {
+      message_id: 10,
+      text: "/parar",
+      from: { id: 42 },
+      chat: { id: -1001 },
+    },
+  });
+  assert.equal(cursor.clicks.length, 1);
+  assert.equal(cursor.clicks[0].kind, "stop");
+  assert.match(telegram.sent.at(-1).text, /Auditoria/);
 });

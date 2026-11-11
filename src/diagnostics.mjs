@@ -77,6 +77,7 @@ export function diagnosticReport({ config = {}, state = {}, windows = [], now = 
       : `Permissão de tópicos: ${permissions.canManageTopics ? "sim" : "não"}`,
     `Última leitura do Cursor: ${ageOf(state.lastCursorReadAt, now)}`,
     `Conversas ligadas: ${linked}; fechadas: ${closed}; ambíguas: ${ambiguous}`,
+    "Leitura ao vivo: só a conversa visível de cada janela. As outras não estão ociosas; estão sem leitura.",
     `Fila: pendentes ${pending}; em execução ${countStatus(state.operations, "em_execucao")}; falhas ${countStatus(state.operations, "falhou")}; incertos ${countStatus(state.operations, "resultado_incerto")}`,
   ];
   if (state.recoveredFrom) lines.push("O estado atual veio de uma cópia de recuperação.");

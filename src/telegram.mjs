@@ -267,21 +267,42 @@ export class Telegram {
     return this.call("answerCallbackQuery", { callback_query_id: id, text }, { priority: true });
   }
 
-  async sendPhoto(chatId, png, extra = {}) {
+  async #postForm(method, form) {
+    const response = await fetch(`${this.apiBase}/bot${this.token}/${method}`, {
+      method: "POST",
+      body: form,
+      signal: AbortSignal.any([AbortSignal.timeout(20000), this.abort.signal]),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!payload.ok) {
+      const error = new Error(payload.description || `falha em ${method}`);
+      error.code = payload.error_code || response.status;
+      throw error;
+    }
+    this.lastSent = Date.now();
+    return payload.result;
+  }
+
+  sendPhoto(chatId, png, extra = {}) {
     return this.enqueue(async () => {
       const form = new FormData();
       form.set("chat_id", String(chatId));
       if (extra.message_thread_id) form.set("message_thread_id", String(extra.message_thread_id));
-      if (extra.caption) form.set("caption", extra.caption.slice(0, 1000));
+      if (extra.caption) form.set("caption", String(extra.caption).slice(0, 1000));
       form.set("photo", new Blob([png], { type: "image/png" }), "tela.png");
-      const response = await fetch(`${this.apiBase}/bot${this.token}/sendPhoto`, {
-        method: "POST",
-        body: form,
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!payload.ok) throw new Error(payload.description || "falha ao enviar a tela");
-      this.lastSent = Date.now();
-      return payload.result;
+      return this.#postForm("sendPhoto", form);
+    });
+  }
+
+  sendDocument(chatId, text, extra = {}) {
+    return this.enqueue(async () => {
+      const form = new FormData();
+      form.set("chat_id", String(chatId));
+      if (extra.message_thread_id) form.set("message_thread_id", String(extra.message_thread_id));
+      if (extra.caption) form.set("caption", String(extra.caption).slice(0, 1000));
+      const name = extra.filename || "resposta.txt";
+      form.set("document", new Blob([text], { type: "text/plain;charset=utf-8" }), name);
+      return this.#postForm("sendDocument", form);
     });
   }
 }

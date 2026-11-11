@@ -11,7 +11,7 @@ import {
   reconcileTokens,
 } from "./approvals.mjs";
 import { CursorClient } from "./cursor.mjs";
-import { chunkText, conversationName, normalizeText, planOutbound, projectName, shortId, topicTitle, topicUrl } from "./delivery.mjs";
+import { chunkText, conversationName, HISTORY_TEXT_CHARS, LONG_REPLY_CHARS, normalizeText, planOutbound, projectName, shortId, topicTitle, topicUrl } from "./delivery.mjs";
 import { diagnosticReport, selectorsBroken } from "./diagnostics.mjs";
 import { loadConfig, rootDir, validateConfig } from "./env.mjs";
 import { annotateWindows, findExistingTopic, storageKey } from "./identity.mjs";
@@ -62,8 +62,10 @@ const helpText = [
   "/diagnostico — o que falhou e o próximo passo",
   "/ultimo N — reenvia o histórico desta conversa",
   "/limpar — apaga o histórico local desta conversa",
-  "/tela — captura a conversa deste tópico",
-  "/parar — interrompe o agente deste tópico",
+  "/tela — captura a conversa deste tópico. Sem tópicos, usa a conversa escolhida",
+  "/parar — interrompe o agente deste tópico. Sem tópicos, usa a conversa escolhida",
+  "Anexo do Telegram não entra no Cursor. A legenda, se houver, segue como prompt.",
+  "Resposta acima de 8.000 caracteres chega como arquivo.",
   "/esquecer — apaga o tópico e o histórico, depois de confirmar",
   "/recarregar — no modo escolhidas, pede confirmação e apaga os tópicos; no modo todas, marca as conversas fechadas",
   "/projetos — lista os projetos e, no modo escolhidas, inclui a conversa",
@@ -337,7 +339,7 @@ export class Bridge {
         if (!topic?.threadId || topic.retired) return false;
         return key.startsWith(`${project}::`) || topic.projectName === project || String(topic.title || "").startsWith(`${project} ·`);
       })
-      .map(([, topic]) => topic)
+      .map(([key, topic]) => ({ ...topic, key }))
       .sort((a, b) => String(a.title).localeCompare(String(b.title), "pt"));
   }
 
@@ -408,7 +410,7 @@ export class Bridge {
       const button = this.tabButton(tab);
       return [{ ...button, text: `${project} · ${button.text}`.slice(0, 64) }];
     });
-    await this.reply(threadId, "Conversas ativas. Toque para abrir o tópico.", {
+    await this.reply(threadId, "Conversas visíveis agora. As outras estão sem leitura ao vivo.", {
       reply_markup: { inline_keyboard: rows },
     });
   }
@@ -452,7 +454,7 @@ export class Bridge {
         .map((tab) => {
           const topic = this.state.topics[tab.key];
           const name = conversationName(project, topic?.title || tab.title);
-          const label = `${tab.active ? `${name} · ativa` : name}`.slice(0, 64);
+          const label = `${name}${tab.active ? " · ativa" : " · sem leitura"}`.slice(0, 64);
           const url = topic?.threadId && !topic.retired && !topic.closed
             ? topicUrl(this.chatId(), topic.threadId)
             : "";
@@ -533,10 +535,14 @@ export class Bridge {
     await this.reply(threadId, head, {
       reply_markup: {
         inline_keyboard: [
-          ...slice.map((topic) => [{
-            text: conversationName(project, topic.title).slice(0, 64),
-            url: topicUrl(this.chatId(), topic.threadId),
-          }]),
+          ...slice.map((topic) => {
+            const live = this.tabs().find((tab) => tab.key === topic.key);
+            const name = conversationName(project, topic.title);
+            return [{
+              text: `${name}${live?.active ? "" : " · sem leitura"}`.slice(0, 64),
+              url: topicUrl(this.chatId(), topic.threadId),
+            }];
+          }),
           nav,
         ],
       },
@@ -766,12 +772,18 @@ export class Bridge {
   }
 
   rememberHistory(key, messages, { truncated = false } = {}) {
-    const trimmed = (messages || []).filter((message) => message?.text).slice(-40).map((message) => ({
-      id: message.id || "",
-      role: message.role || "",
-      text: String(message.text).slice(0, 20000),
-      truncated: Boolean(message.truncated),
-    }));
+    const trimmed = (messages || []).filter((message) => message?.text).slice(-40).map((message) => {
+      const raw = String(message.text);
+      const cut = raw.length > HISTORY_TEXT_CHARS;
+      let text = cut ? raw.slice(0, HISTORY_TEXT_CHARS) : raw;
+      if (cut && /[\uD800-\uDBFF]$/.test(text)) text = text.slice(0, -1);
+      return {
+        id: message.id || "",
+        role: message.role || "",
+        text,
+        truncated: Boolean(message.truncated) || cut,
+      };
+    });
     const truncatedFlag = Boolean(truncated);
     const current = this.state.history[key];
     if (current && current.truncated === truncatedFlag && JSON.stringify(current.messages) === JSON.stringify(trimmed)) return;
@@ -785,10 +797,12 @@ export class Bridge {
   }
 
   async deliverTracked(chatId, text, extra, trackingId) {
-    const parts = chunkText(text);
+    const asFile = text.length > LONG_REPLY_CHARS && typeof this.telegram.sendDocument === "function";
     let record = this.state.outbound[trackingId];
     if (!record?.parts?.length) {
-      record = { parts: parts.map((part) => ({ text: part, status: "pendente", messageId: null })) };
+      record = asFile
+        ? { parts: [{ kind: "file", text, status: "pendente", messageId: null }] }
+        : { parts: chunkText(text).map((part) => ({ kind: "text", text: part, status: "pendente", messageId: null })) };
       this.state.outbound[trackingId] = record;
     }
     const send = this.telegram.sendExact
@@ -796,7 +810,13 @@ export class Bridge {
       : (part, options) => this.telegram.sendText(chatId, part, options);
     for (const part of record.parts) {
       if (part.status === "confirmada") continue;
-      const sent = await send(part.text, extra);
+      const sent = part.kind === "file"
+        ? await this.telegram.sendDocument(chatId, part.text, {
+          ...extra,
+          caption: "Resposta longa. O texto completo está no arquivo.",
+          filename: "resposta.txt",
+        })
+        : await send(part.text, extra);
       part.status = "confirmada";
       part.messageId = sent?.message_id || null;
       await this.persist();
@@ -908,13 +928,14 @@ export class Bridge {
     for (const tab of this.tabs()) {
       const topic = this.state.topics[tab.key];
       if (!topic?.threadId || topic.closed || topic.retired) continue;
-      const mode = tab.active && topicIcons[tab.window.status] ? tab.window.status : "idle";
+      const mode = tab.active && topicIcons[tab.window.status] ? tab.window.status : "unobserved";
       if (topic.icon === mode) continue;
       try {
-        await this.telegram.setForumTopicIcon(chatId, topic.threadId, topicIcons[mode]);
+        await this.telegram.setForumTopicIcon(chatId, topic.threadId, mode === "unobserved" ? "" : topicIcons[mode]);
         topic.icon = mode;
       } catch (error) {
         if (!/not modified/i.test(error.message)) this.logEvent("telegram", { event: "icon", error: error.message, dest: tab.key });
+        if (mode === "unobserved" || /not modified/i.test(error.message)) topic.icon = mode;
       }
     }
   }
@@ -1098,7 +1119,11 @@ export class Bridge {
       await this.acceptUpdate(update, null);
       return;
     }
-    const text = message.text || "";
+    const attachment = Boolean(
+      message.photo || message.document || message.video || message.audio
+      || message.voice || message.video_note || message.sticker || message.animation,
+    );
+    const text = message.text || message.caption || "";
     const command = commandOf(text);
     const threadId = message.message_thread_id || 0;
     const chatId = String(message.chat.id);
@@ -1121,8 +1146,11 @@ export class Bridge {
       }
       return;
     }
+    if (attachment) {
+      await this.reply(threadId, "Não enviei o anexo. A ponte ainda não leva arquivos para o Cursor.");
+    }
     if (command?.name === "parar") {
-      if (!threadId || threadId === 1) {
+      if (this.state.forum !== false && (!threadId || threadId === 1)) {
         const accepted = await this.acceptUpdate(update, null);
         if (!accepted.ok || accepted.duplicate) return;
         await this.reply(threadId || 1, "Use /parar dentro do tópico da conversa.");
@@ -1484,7 +1512,7 @@ export class Bridge {
   }
 
   async handleScreenshot(threadId) {
-    if (!threadId || threadId === 1) {
+    if (this.state.forum !== false && (!threadId || threadId === 1)) {
       await this.reply(threadId || 1, "Use /tela dentro do tópico da conversa.");
       return;
     }
@@ -1556,7 +1584,7 @@ export class Bridge {
       const threadId = query.message?.message_thread_id || 1;
       await this.telegram.answerCallback(query.id, "");
       if (name === "parar") {
-        if (!threadId || threadId === 1) {
+        if (this.state.forum !== false && (!threadId || threadId === 1)) {
           await this.reply(threadId || 1, "Use /parar dentro do tópico da conversa.");
           return;
         }

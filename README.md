@@ -148,13 +148,13 @@ Mensagem de qualquer outro usuário é ignorada.
 | `/diagnostico` | Qualquer tópico | Mostra a causa da falha e o próximo passo, sem o token |
 | `/ultimo N` | Tópico da aba | Reenvia o histórico desta conversa. Sem N, manda 5. O máximo é 20. Aba inativa usa só o que foi visto nela |
 | `/limpar` | Tópico da aba | Apaga o histórico local desta conversa. As mensagens do Telegram ficam |
-| `/tela` | Tópico da aba, ou General | Captura a conversa do tópico. No General, captura a janela atual e diz isso |
-| `/parar` | Tópico da aba, ou General | Interrompe o agente dessa conversa. No General, interrompe a janela atual |
+| `/tela` | Tópico da aba | Captura essa conversa, depois de confirmá-la. Sem tópicos, usa a conversa escolhida com `/usar` |
+| `/parar` | Tópico da aba | Interrompe o agente dessa conversa, depois de confirmá-la. Sem tópicos, usa a conversa escolhida com `/usar` |
 | `/esquecer` | Tópico da aba | Pede confirmação e só então apaga o tópico e o histórico no Telegram |
 | `/parear CODIGO` | General | Autoriza a conta e o grupo com o código impresso no terminal |
 | `/recarregar` | Só no General | No modo `todas`, marca conversas fechadas e mantém o histórico. No modo `escolhidas`, apaga os tópicos e a seleção |
 
-Os botões do General repetem Abas, Recarregar, Status, Tela, Parar e Ajuda. Tela e Parar usam a aba ativa naquele momento.
+Os botões do General são Projetos, Ativas, Status e Ajuda. Com tópicos, `/tela` e `/parar` no General são recusados para não agir na conversa visível por engano.
 
 `/start` e `/help` fazem o mesmo que `/ajuda`.
 
@@ -200,8 +200,9 @@ npm test
 
 - A conversa completa é a da aba ativa de cada janela. Mandar texto para o tópico de uma aba em segundo plano troca para ela e só confirma o envio depois de ver o texto nessa conversa.
 - Um resultado incerto não é reenviado sozinho. A ponte avisa e espera um pedido novo.
-- Resposta longa não é cortada em silêncio. Se o Cursor só mostrou parte do texto, a mensagem diz isso.
-- Anexos e o acompanhamento de conversas que não estão na aba ativa ficam para uma etapa seguinte.
+- Resposta longa não é cortada em silêncio. Acima de 8.000 caracteres, o texto completo vai em arquivo. Se o Cursor só mostrou parte do texto, a mensagem diz isso. O histórico local guarda até 20.000 caracteres por mensagem e marca o corte.
+- Um anexo enviado no Telegram não entra no Cursor. A ponte avisa, e a legenda segue como prompt.
+- Conversa que não está visível não é tratada como ociosa. O ícone de andamento sai do tópico e a lista marca **sem leitura**.
 - Conversa escondida atrás de **More** na barra lateral não entra na leitura.
 - A porta 9222 dá controle do Cursor para programas desta máquina. Ela fica em `127.0.0.1`. Não publique essa porta na rede.
 - O token do bot e o arquivo `.env` ficam só na sua máquina. O `.env` já está no `.gitignore`.

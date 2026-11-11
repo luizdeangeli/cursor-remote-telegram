@@ -21,6 +21,9 @@ function unclosedFence(text) {
   return open;
 }
 
+export const LONG_REPLY_CHARS = 8000;
+export const HISTORY_TEXT_CHARS = 20000;
+
 export function chunkText(text, size = 4000) {
   const source = Array.from(String(text ?? "").trim());
   if (!source.length) return [];
